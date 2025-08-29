@@ -30,6 +30,7 @@
                 <tr>
                     <th class="text-left px-4 py-2">Waktu</th>
                     <th class="text-left px-4 py-2">No. PO</th>
+                    <th class="text-left px-4 py-2">Nama Supplier</th>
                     <th class="text-left px-4 py-2">File</th>
                     <th class="text-left px-4 py-2">Status</th>
                     <th class="text-left px-4 py-2">Aksi</th>
@@ -40,6 +41,7 @@
                     <tr class="border-t">
                         <td class="px-4 py-2">{{ $r->created_at->format('Y-m-d H:i') }}</td>
                         <td class="px-4 py-2">{{ $r->po_no ?? '—' }}</td>
+                        <td class="px-4 py-2">{{ $r->supplier_name ?? '—' }}</td>
                         <td class="px-4 py-2">
                             <a class="text-blue-600 underline" href="{{ $r->file_url }}" target="_blank">Lihat PDF</a>
                         </td>
@@ -69,7 +71,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="px-4 py-6 text-center text-gray-500">Belum ada data</td>
+                        <td colspan="6" class="px-4 py-6 text-center text-gray-500">Belum ada data</td>
                     </tr>
                 @endforelse
             </tbody>

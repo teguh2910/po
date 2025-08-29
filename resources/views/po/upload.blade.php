@@ -7,6 +7,13 @@
         <form action="{{ route('po.store') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
             @csrf
             <div>
+                <label class="block text-sm mb-1">Nama Supplier <span class="text-gray-500">(opsional - akan diambil dari PDF jika tersedia)</span></label>
+                <input type="text" name="supplier_name" class="block w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Masukkan nama supplier atau biarkan kosong">
+                @error('supplier_name')
+                    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
+            </div>
+            <div>
                 <label class="block text-sm mb-1">File PDF</label>
                 <!-- ganti input file lama -->
                 <input type="file" name="pdfs[]" accept="application/pdf" multiple required class="block w-full">

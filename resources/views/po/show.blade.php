@@ -14,6 +14,10 @@
                     <span class="font-medium">{{ $poUpload->po_no ?? '—' }}</span>
                 </div>
                 <div class="text-sm text-gray-600">
+                    <span>Nama Supplier: </span>
+                    <span class="font-medium">{{ $poUpload->supplier_name ?? '—' }}</span>
+                </div>
+                <div class="text-sm text-gray-600">
                     <span>Diunggah: </span>
                     <span class="font-medium">{{ $poUpload->created_at->format('Y-m-d H:i') }}</span>
                 </div>

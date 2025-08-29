@@ -3,15 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\PoUpload;
-use App\Services\N8nClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class PoController extends Controller
 {
     public function index()
     {
         $rows = PoUpload::latest()->paginate(20);
+
         return view('po.index', compact('rows'));
     }
 
@@ -24,9 +23,10 @@ class PoController extends Controller
     {
         // Validasi: boleh single (pdf) atau multiple (pdfs[])
         $request->validate([
-            'pdf'      => ['nullable','file','mimes:pdf','max:51200'],         // 50MB
-            'pdfs'     => ['nullable','array','max:100'],
-            'pdfs.*'   => ['file','mimes:pdf','max:51200'],
+            'supplier_name' => ['nullable', 'string', 'max:255'],
+            'pdf' => ['nullable', 'file', 'mimes:pdf', 'max:51200'],         // 50MB
+            'pdfs' => ['nullable', 'array', 'max:100'],
+            'pdfs.*' => ['file', 'mimes:pdf', 'max:51200'],
         ]);
 
         // Kumpulkan files
@@ -38,16 +38,18 @@ class PoController extends Controller
         }
 
         if (empty($files)) {
-            return back()->with('error','Tidak ada file yang diunggah.');
+            return back()->with('error', 'Tidak ada file yang diunggah.');
         }
 
-        $created = 0; $failed = 0; $results = [];
+        $created = 0;
+        $failed = 0;
+        $results = [];
 
         foreach ($files as $file) {
             try {
                 // 1) simpan file
                 $path = $file->store('po', 'public');
-                $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($path);
+                $url = \Illuminate\Support\Facades\Storage::disk('public')->url($path);
 
                 // 2) kirim ke n8n (field "pdf")
                 $resp = $n8n->post([], ['pdf' => $file]);
@@ -60,16 +62,17 @@ class PoController extends Controller
                 }
 
                 // 3) ambil status & noPo dari respon
-                [$ok, $poNo] = $this->deriveStatusAndPoNo($body);
+                [$ok, $poNo, $extractedSupplierName] = $this->deriveStatusAndPoNo($body);
 
                 // 4) simpan DB
                 \App\Models\PoUpload::create([
-                    'po_no'        => $poNo,
-                    'file_path'    => $path,
-                    'file_url'     => $url,
-                    'status'       => $ok ? 'OK' : 'NOT_OK',
+                    'po_no' => $poNo,
+                    'supplier_name' => $extractedSupplierName ?: $request->supplier_name,
+                    'file_path' => $path,
+                    'file_url' => $url,
+                    'status' => $ok ? 'OK' : 'NOT_OK',
                     'n8n_response' => $body,
-                    'user_id'      => session('user_id'),
+                    'user_id' => session('user_id'),
                 ]);
 
                 $created++;
@@ -121,17 +124,32 @@ class PoController extends Controller
         //    - NOT_OK: ada minimal 1 item non-summary statusnya bukan "match"
         $ok = true;
         $poNo = null;
-        $BAD_STATUSES = ['mismatch','not_found_in_master','invalid_input','invalid_price','part_mismatch','not_ok','NOT_OK'];
+        $supplierName = null;
+        $BAD_STATUSES = ['mismatch', 'not_found_in_master', 'invalid_input', 'invalid_price', 'part_mismatch', 'not_ok', 'NOT_OK'];
 
         foreach ($items as $row) {
-            if (!is_array($row)) continue;
-            if (!empty($row['__summary'])) continue; // abaikan summary
+            if (! is_array($row)) {
+                continue;
+            }
+            if (! empty($row['__summary'])) {
+                continue;
+            } // abaikan summary
 
             // tangkap nomor PO jika suatu saat dikirim oleh n8n
-            if (!$poNo) {
-                foreach (['noPo','poNo','po','PO','po_number','PONumber'] as $k) {
+            if (! $poNo) {
+                foreach (['noPo', 'poNo', 'po', 'PO', 'po_number', 'PONumber'] as $k) {
                     if (isset($row[$k]) && is_scalar($row[$k])) {
-                        $poNo = trim((string)$row[$k]);
+                        $poNo = trim((string) $row[$k]);
+                        break;
+                    }
+                }
+            }
+
+            // tangkap nama supplier dari n8n response
+            if (! $supplierName) {
+                foreach (['supplier', 'supplier_name', 'vendor', 'vendor_name', 'supplierName', 'vendorName', 'nama_supplier', 'nama_vendor'] as $k) {
+                    if (isset($row[$k]) && is_scalar($row[$k])) {
+                        $supplierName = trim((string) $row[$k]);
                         break;
                     }
                 }
@@ -139,7 +157,7 @@ class PoController extends Controller
 
             // baca status per item
             if (isset($row['status'])) {
-                $st = strtolower((string)$row['status']);
+                $st = strtolower((string) $row['status']);
                 if ($st !== 'match') {
                     $ok = false;
                     break;
@@ -156,8 +174,9 @@ class PoController extends Controller
             }
         }
 
-        return [$ok, $poNo];
+        return [$ok, $poNo, $supplierName];
     }
+
     public function show(PoUpload $poUpload)
     {
         // n8n_response sudah dicast ke array (lihat model)
@@ -168,6 +187,7 @@ class PoController extends Controller
 
         return view('po.show', compact('poUpload', 'items', 'summary'));
     }
+
     private function normalizeN8nItemsAndSummary(mixed $body): array
     {
         // 0) Kalau string, coba decode JSON
@@ -192,19 +212,19 @@ class PoController extends Controller
                     $arr = $body['data'];
                 } elseif (isset($body['json']) && is_array($body['json'])) {
                     // single object dengan key json (unwrap)
-                    $arr = [ $body['json'] ];
+                    $arr = [$body['json']];
                 } else {
                     // single-row assoc
-                    $arr = [ $body ];
+                    $arr = [$body];
                 }
             } else {
                 // Sudah array numerik
                 $arr = $body;
 
                 // 2) Pola khas n8n: setiap elemen punya key 'json' → unwrap
-                $hasJsonKey = !empty($arr) && array_reduce($arr, fn($c,$x) => $c && is_array($x) && array_key_exists('json',$x), true);
+                $hasJsonKey = ! empty($arr) && array_reduce($arr, fn ($c, $x) => $c && is_array($x) && array_key_exists('json', $x), true);
                 if ($hasJsonKey) {
-                    $arr = array_map(fn($x) => (is_array($x['json']) ? $x['json'] : $x), $arr);
+                    $arr = array_map(fn ($x) => (is_array($x['json']) ? $x['json'] : $x), $arr);
                 }
             }
         } else {
@@ -216,9 +236,12 @@ class PoController extends Controller
         $items = [];
         $summary = null;
         foreach ($arr as $row) {
-            if (!is_array($row)) continue;
-            if (!empty($row['__summary'])) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if (! empty($row['__summary'])) {
                 $summary = $summary ?? $row;
+
                 continue;
             }
             $items[] = $row;
@@ -246,5 +269,4 @@ class PoController extends Controller
             ->route('po.index')
             ->with('success', 'Data PO berhasil dihapus.');
     }
-
 }
